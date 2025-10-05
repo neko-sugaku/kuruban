@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>駒流盤</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Yuji+Syuku&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            /* New "gorgeous" board colors */
+            --board-bg-light: #CFD8DC;
+            --board-bg-dark: #546E7A;
+            --selected-bg: rgba(34, 197, 94, 0.5);
+            /* Changed valid move marker to yellow */
+            --valid-move-bg: rgba(253, 224, 71, 0.7);
+            --slide-arrow-bg: #4a5568;
+            --slide-arrow-hover-bg: #2d3748;
+            /* New active arrow colors */
+            --arrow-active-bg: #FBBF24; /* amber-400 */
+            --arrow-active-hover-bg: #F59E0B; /* amber-500 */
+        }
+        body {
+            font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
+            touch-action: manipulation;
+        }
+        .board-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            grid-template-rows: repeat(7, 1fr);
+            aspect-ratio: 1 / 1;
+            border: 3px solid #37474F;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            background-color: #455A64;
+        }
+        .board-cell {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: clamp(1rem, 3vw, 1.5rem);
+            font-weight: bold;
+            cursor: pointer;
+            user-select: none;
+            transition: background-color 0.2s;
+            position: relative;
+        }
+        /* New board style with gradients */
+        .board-cell.light { background: linear-gradient(145deg, #ECEFF1, #B0BEC5); }
+        .board-cell.dark { background: linear-gradient(145deg, #78909C, #455A64); }
+        
+        /* --- Piece Styles --- */
+        .piece {
+            width: 80%;
+            height: 80%;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3), inset 0 3px 4px rgba(255,255,255,0.4);
+            transition: transform 0.1s ease-in-out;
+            /* New font */
+            font-family: 'Yuji Syuku', serif;
+            font-size: clamp(1.2rem, 3.5vw, 1.8rem);
+            position: relative; /* Add this for z-index context */
+            z-index: 1; /* Ensure piece is on top of the marker */
+        }
+        .piece:hover {
+            transform: scale(1.05);
+        }
+        .piece.p1 { 
+            border: 3px solid #fff; 
+            /* White text with black stroke */
+            color: #fff;
+            text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+        }
+        .piece.p2 { 
+            border: 3px solid #2d3748;
+            /* Black text */
+            color: #2d3748;
+            text-shadow: 0 1px 1px rgba(255,255,255,0.4);
+            /* Rotate piece 180 degrees */
+            transform: rotate(180deg);
+        }
+        .piece.p2:hover {
+             transform: scale(1.05) rotate(180deg);
+        }
+
+        .piece.king {
+            background: radial-gradient(circle at 50% 30%, #ff7d7d, #d32f2f 80%);
+        }
+        .piece.pawn {
+            background: radial-gradient(circle at 50% 30%, #81e69f, #2f855a 80%);
+        }
+        .piece.knight {
+            background: radial-gradient(circle at 50% 30%, #90cdf4, #3182ce 80%);
+        }
+        /* --- End Piece Styles --- */
+
+        .selected { background-color: var(--selected-bg) !important; }
+        
+        .valid-move::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: block;
+            width: 90%; /* Larger to surround the piece */
+            height: 90%;
+            background-color: transparent;
+            border: 4px solid var(--valid-move-bg); /* Yellow ring */
+            border-radius: 50%;
+            z-index: 2; /* Display ON TOP of the piece */
+            box-sizing: border-box;
+            pointer-events: none; /* Make sure the ring doesn't block clicks */
+        }
+
+        .slide-container {
+            display: grid;
+            grid-template-columns: auto 1fr auto;
+            grid-template-rows: auto 1fr auto;
+            gap: 8px;
+        }
+        .slide-arrow {
+            background-color: var(--slide-arrow-bg);
+            color: white;
+            border: none;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            transition: background-color 0.2s, opacity 0.2s, color 0.2s;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.5rem;
+            line-height: 1;
+        }
+        .slide-arrow:hover:not(:disabled) { background-color: var(--slide-arrow-hover-bg); }
+        .slide-arrow.active {
+            color: var(--arrow-active-bg);
+        }
+        .slide-arrow.active:hover:not(:disabled) {
+            color: var(--arrow-active-hover-bg);
+        }
+        .slide-arrow:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+        .col-arrows { display: flex; flex-direction: column; justify-content: space-around; }
+        .row-arrows { display: flex; justify-content: space-around; }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 100;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.6);
+            justify-content: center; /* Use flex to center modal */
+            align-items: center;
+        }
+        .modal-content {
+            background-color: #fefefe;
+            padding: 2rem;
+            border: 1px solid #888;
+            width: 90%;
+            max-width: 600px;
+            border-radius: 0.5rem;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+        /* New styles for vertical layout */
+        .vertical-rl {
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+            white-space: nowrap; /* Prevent wrapping in vertical mode */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-4xl mx-auto flex items-center justify-center space-x-2 md:space-x-4">
+        
+        <!-- Center (Game Board) -->
+        <div class="flex-grow max-w-2xl">
+            <div class="slide-container">
+                <div></div>
+                <div id="top-arrows" class="row-arrows space-x-1"></div>
+                <div></div>
+                <div id="left-arrows" class="col-arrows space-y-1"></div>
+                <div id="board" class="board-grid"></div>
+                <div id="right-arrows" class="col-arrows space-y-1"></div>
+                <div></div>
+                <div id="bottom-arrows" class="row-arrows space-x-1"></div>
+                <div></div>
+            </div>
+        </div>
+
+        <!-- Right Side (Control Panel) -->
+        <div class="control-panel flex-shrink-0 w-16 md:w-20 flex flex-col justify-between items-center self-stretch py-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-gray-800 vertical-rl">駒流盤</h1>
+            <p id="message-area" class="text-base md:text-lg text-gray-600 text-center vertical-rl"></p>
+            <div class="flex flex-col items-center">
+                 <button id="reset-button" class="px-3 py-6 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-75 vertical-rl mb-4">
+                    リセット
+                </button>
+                <button id="help-button" class="px-3 py-6 bg-gray-600 text-white font-semibold rounded-lg shadow-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-75 vertical-rl">
+                    説明
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Win Modal -->
+    <div id="winModal" class="modal">
+        <div class="modal-content text-center">
+            <h2 id="winMessage" class="text-3xl font-bold mb-4"></h2>
+            <button id="modal-reset-button" class="px-8 py-3 bg-green-500 text-white font-bold rounded-lg shadow-lg hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-75">
+                もう一度遊ぶ
+            </button>
+        </div>
+    </div>
+    
+    <!-- Help Modal -->
+    <div id="helpModal" class="modal">
+        <div class="modal-content">
+            <h2 class="text-2xl font-bold mb-4 text-center">遊び方</h2>
+            <div class="text-left space-y-4">
+                <div>
+                    <h3 class="text-lg font-semibold border-b-2 border-gray-300 pb-1 mb-2">勝利条件</h3>
+                    <ul class="list-disc list-inside">
+                        <li>自分の「王」を相手陣地の最奥に到達させる。</li>
+                        <li>相手の「王」の駒を取る。</li>
+                    </ul>
+                </div>
+                 <div>
+                    <h3 class="text-lg font-semibold border-b-2 border-gray-300 pb-1 mb-2">自分の番にすること</h3>
+                    <ol class="list-decimal list-inside">
+                        <li><strong>駒を動かす:</strong> 自分の駒を１つ選んで動かします。</li>
+                        <li><strong>盤面をスライドさせる:</strong> 駒を動かした後、いずれかの駒が乗っている行か列を１マス分スライドさせます。（王のいる行・列はスライドできません）</li>
+                    </ol>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold border-b-2 border-gray-300 pb-1 mb-2">駒の動き</h3>
+                     <ul class="list-disc list-inside">
+                        <li><strong>王:</strong> 縦・横・斜めに1マス進めます。</li>
+                        <li><strong>兵:</strong> 前に1マス進めます。相手の駒を取る時だけ、斜め前に進めます。</li>
+                        <li><strong>馬:</strong> チェスのナイトのように、2マス進んで1マス曲がる動きができます。</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="text-center mt-6">
+                 <button id="modal-close-button" class="px-8 py-2 bg-blue-500 text-white font-bold rounded-lg shadow-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75">
+                    閉じる
+                </button>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        // --- DOM Elements ---
+        const boardElement = document.getElementById('board');
+        const messageArea = document.getElementById('message-area');
+        const resetButton = document.getElementById('reset-button');
+        const helpButton = document.getElementById('help-button');
+        const winModal = document.getElementById('winModal');
+        const helpModal = document.getElementById('helpModal');
+        const winMessage = document.getElementById('winMessage');
+        const modalResetButton = document.getElementById('modal-reset-button');
+        const modalCloseButton = document.getElementById('modal-close-button');
+        
+        // --- Game Constants ---
+        const BOARD_SIZE = 7;
+        const PIECES = {
+            KING: '王',
+            KNIGHT: '馬',
+            PAWN: '兵'
+        };
+        const PLAYER = { ONE: 1, TWO: 2 };
+
+        // --- Game State ---
+        let boardState;
+        let currentPlayer;
+        let gameState; // 'pieceMove' or 'boardSlide' or 'gameOver'
+        let selectedPiece = null;
+
+        // --- Initial Setup ---
+        const initialSetup = [
+            // Player 2 (Top)
+            { r: 0, c: 1, type: PIECES.PAWN, player: PLAYER.TWO },
+            { r: 0, c: 2, type: PIECES.KNIGHT, player: PLAYER.TWO },
+            { r: 0, c: 3, type: PIECES.KING, player: PLAYER.TWO },
+            { r: 0, c: 4, type: PIECES.PAWN, player: PLAYER.TWO },
+            { r: 0, c: 5, type: PIECES.PAWN, player: PLAYER.TWO },
+            // Player 1 (Bottom)
+            { r: 6, c: 1, type: PIECES.PAWN, player: PLAYER.ONE },
+            { r: 6, c: 2, type: PIECES.PAWN, player: PLAYER.ONE },
+            { r: 6, c: 3, type: PIECES.KING, player: PLAYER.ONE },
+            { r: 6, c: 4, type: PIECES.KNIGHT, player: PLAYER.ONE },
+            { r: 6, c: 5, type: PIECES.PAWN, player: PLAYER.ONE },
+        ];
+        
+        function initGame() {
+            boardState = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
+            initialSetup.forEach(p => {
+                boardState[p.r][p.c] = { type: p.type, player: p.player };
+            });
+            currentPlayer = PLAYER.ONE;
+            gameState = 'pieceMove';
+            selectedPiece = null;
+            winModal.style.display = 'none';
+            helpModal.style.display = 'none';
+            renderBoard();
+            createSlideArrows();
+            updateMessage();
+        }
+
+        // --- Rendering ---
+        function renderBoard() {
+            boardElement.innerHTML = '';
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    const cell = document.createElement('div');
+                    cell.classList.add('board-cell');
+                    cell.classList.add((r + c) % 2 === 0 ? 'light' : 'dark');
+                    cell.dataset.r = r;
+                    cell.dataset.c = c;
+
+                    const piece = boardState[r][c];
+                    if (piece) {
+                        const pieceElement = document.createElement('div');
+                        pieceElement.classList.add('piece');
+                        pieceElement.classList.add(piece.player === PLAYER.ONE ? 'p1' : 'p2');
+                        
+                        const typeClass = piece.type === PIECES.KING ? 'king' : piece.type === PIECES.KNIGHT ? 'knight' : 'pawn';
+                        pieceElement.classList.add(typeClass);
+                        
+                        pieceElement.textContent = piece.type;
+                        cell.appendChild(pieceElement);
+                    }
+                    boardElement.appendChild(cell);
+                }
+            }
+            // Add event listeners after rendering
+            boardElement.querySelectorAll('.board-cell').forEach(cell => {
+                cell.addEventListener('click', handleCellClick);
+            });
+            updateSlideArrowsState();
+        }
+
+        function updateMessage() {
+            if (gameState === 'gameOver') {
+                messageArea.innerHTML = 'ゲーム終了！';
+                return;
+            }
+            
+            const phase = gameState === 'pieceMove' ? '駒を動かしてください' : '盤面をスライドさせてください';
+            const playerName = currentPlayer === PLAYER.ONE ? '1 (白)' : '2 (黒)';
+            messageArea.innerHTML = `プレイヤー${playerName}の番です。<br>${phase}`;
+        }
+        
+        // --- Slide Arrows ---
+        function createSlideArrows() {
+            const arrowContainers = {
+                top: document.getElementById('top-arrows'),
+                bottom: document.getElementById('bottom-arrows'),
+                left: document.getElementById('left-arrows'),
+                right: document.getElementById('right-arrows')
+            };
+            Object.values(arrowContainers).forEach(c => c.innerHTML = '');
+
+            for (let i = 0; i < BOARD_SIZE; i++) {
+                // Top/Bottom (Cols)
+                const topUp = document.createElement('button');
+                topUp.dataset.hollow = '&#9651;'; // White Triangle (hollow)
+                topUp.dataset.solid = '&#9650;';  // Black Triangle (solid)
+                topUp.innerHTML = topUp.dataset.hollow;
+                topUp.classList.add('slide-arrow', 'w-full', 'h-8');
+                topUp.onclick = () => handleSlide('col', i, -1);
+                arrowContainers.top.appendChild(topUp);
+
+                const botDown = document.createElement('button');
+                botDown.dataset.hollow = '&#9661;'; // White Triangle (hollow)
+                botDown.dataset.solid = '&#9660;';  // Black Triangle (solid)
+                botDown.innerHTML = botDown.dataset.hollow;
+                botDown.classList.add('slide-arrow', 'w-full', 'h-8');
+                botDown.onclick = () => handleSlide('col', i, 1);
+                arrowContainers.bottom.appendChild(botDown);
+
+                // Left/Right (Rows)
+                const leftLeft = document.createElement('button');
+                leftLeft.dataset.hollow = '&#9665;'; // White Triangle (hollow)
+                leftLeft.dataset.solid = '&#9664;';  // Black Triangle (solid)
+                leftLeft.innerHTML = leftLeft.dataset.hollow;
+                leftLeft.classList.add('slide-arrow', 'h-full', 'w-8');
+                leftLeft.onclick = () => handleSlide('row', i, -1);
+                arrowContainers.left.appendChild(leftLeft);
+                
+                const rightRight = document.createElement('button');
+                rightRight.dataset.hollow = '&#9655;'; // White Triangle (hollow)
+                rightRight.dataset.solid = '&#9654;';  // Black Triangle (solid)
+                rightRight.innerHTML = rightRight.dataset.hollow;
+                rightRight.classList.add('slide-arrow', 'h-full', 'w-8');
+                rightRight.onclick = () => handleSlide('row', i, 1);
+                arrowContainers.right.appendChild(rightRight);
+            }
+        }
+        
+        function updateSlideArrowsState() {
+            document.querySelectorAll('.slide-arrow').forEach(arrow => {
+                const isActivePhase = gameState === 'boardSlide';
+                arrow.disabled = !isActivePhase;
+                
+                if (isActivePhase) {
+                    arrow.classList.add('active');
+                    arrow.innerHTML = arrow.dataset.solid;
+                } else {
+                    arrow.classList.remove('active');
+                    arrow.innerHTML = arrow.dataset.hollow;
+                }
+            });
+
+            if (gameState === 'boardSlide') {
+                // Disable arrows for empty rows/cols
+                for (let i = 0; i < BOARD_SIZE; i++) {
+                    const isRowEmpty = boardState[i].every(p => p === null);
+                    if (isRowEmpty) {
+                        const rowArrows = document.querySelectorAll(`#left-arrows button:nth-child(${i + 1}), #right-arrows button:nth-child(${i + 1})`);
+                        rowArrows.forEach(b => {
+                            b.disabled = true;
+                            b.classList.remove('active');
+                            b.innerHTML = b.dataset.hollow;
+                        });
+                    }
+                    const isColEmpty = boardState.every(row => row[i] === null);
+                    if (isColEmpty) {
+                        const colArrows = document.querySelectorAll(`#top-arrows button:nth-child(${i + 1}), #bottom-arrows button:nth-child(${i + 1})`);
+                        colArrows.forEach(b => {
+                            b.disabled = true;
+                            b.classList.remove('active');
+                            b.innerHTML = b.dataset.hollow;
+                        });
+                    }
+                }
+
+                // Disable arrows for rows/cols with a king
+                const player1KingPos = findPiece(PIECES.KING, PLAYER.ONE);
+                const player2KingPos = findPiece(PIECES.KING, PLAYER.TWO);
+
+                const positionsToBlock = [];
+                if (player1KingPos) positionsToBlock.push(player1KingPos);
+                if (player2KingPos) positionsToBlock.push(player2KingPos);
+
+                positionsToBlock.forEach(pos => {
+                    const rowArrows = document.querySelectorAll(`#left-arrows button:nth-child(${pos.r + 1}), #right-arrows button:nth-child(${pos.r + 1})`);
+                    rowArrows.forEach(b => {
+                        b.disabled = true;
+                        b.classList.remove('active');
+                        b.innerHTML = b.dataset.hollow;
+                    });
+                    const colArrows = document.querySelectorAll(`#top-arrows button:nth-child(${pos.c + 1}), #bottom-arrows button:nth-child(${pos.c + 1})`);
+                    colArrows.forEach(b => {
+                        b.disabled = true;
+                        b.classList.remove('active');
+                        b.innerHTML = b.dataset.hollow;
+                    });
+                });
+            }
+        }
+
+        // --- Event Handlers ---
+        function handleCellClick(event) {
+            if (gameState !== 'pieceMove') return;
+
+            const cell = event.currentTarget;
+            const r = parseInt(cell.dataset.r);
+            const c = parseInt(cell.dataset.c);
+            const piece = boardState[r][c];
+
+            if (selectedPiece) {
+                const validMoves = getValidMoves(selectedPiece.r, selectedPiece.c);
+                const isMoveValid = validMoves.some(move => move.r === r && move.c === c);
+
+                if (isMoveValid) {
+                    movePiece(selectedPiece.r, selectedPiece.c, r, c);
+                } else {
+                    clearHighlights();
+                    selectedPiece = null;
+                }
+            } else if (piece && piece.player === currentPlayer) {
+                selectPiece(r, c);
+            }
+        }
+        
+        function handleSlide(direction, index, delta) {
+            if (gameState !== 'boardSlide') return;
+            
+            if (direction === 'row') {
+                const row = boardState[index];
+                const movedRow = slideArray(row, delta);
+                boardState[index] = movedRow;
+            } else { // col
+                let col = [];
+                for(let i=0; i<BOARD_SIZE; i++) col.push(boardState[i][index]);
+                const movedCol = slideArray(col, delta);
+                for(let i=0; i<BOARD_SIZE; i++) boardState[i][index] = movedCol[i];
+            }
+            
+            gameState = 'pieceMove';
+            currentPlayer = (currentPlayer === PLAYER.ONE) ? PLAYER.TWO : PLAYER.ONE;
+            renderBoard();
+            updateMessage();
+        }
+
+        // --- Game Logic ---
+        function selectPiece(r, c) {
+            clearHighlights();
+            selectedPiece = { r, c };
+            const cell = boardElement.querySelector(`[data-r='${r}'][data-c='${c}']`);
+            cell.classList.add('selected');
+
+            const validMoves = getValidMoves(r, c);
+            validMoves.forEach(move => {
+                const moveCell = boardElement.querySelector(`[data-r='${move.r}'][data-c='${move.c}']`);
+                if (moveCell) moveCell.classList.add('valid-move');
+            });
+        }
+        
+        function movePiece(fromR, fromC, toR, toC) {
+            const capturedPiece = boardState[toR][toC];
+            boardState[toR][toC] = boardState[fromR][fromC];
+            boardState[fromR][fromC] = null;
+            selectedPiece = null;
+            clearHighlights();
+            
+            if (capturedPiece && capturedPiece.type === PIECES.KING) {
+                gameState = 'gameOver';
+                renderBoard();
+                showWinModal();
+                return;
+            }
+
+            if (checkForWin(toR, toC)) {
+                 gameState = 'gameOver';
+                 renderBoard();
+                 showWinModal();
+            } else {
+                gameState = 'boardSlide';
+                renderBoard();
+                updateMessage();
+            }
+        }
+        
+        function getValidMoves(r, c) {
+            const piece = boardState[r][c];
+            if (!piece) return [];
+
+            let moves = [];
+            const { type, player } = piece;
+
+            const moveFunctions = {
+                [PIECES.KING]: getKingMoves,
+                [PIECES.PAWN]: getPawnMoves,
+                [PIECES.KNIGHT]: getKnightMoves,
+            };
+
+            if (moveFunctions[type]) {
+                moves = moveFunctions[type](r, c, player);
+            }
+            
+            return moves.filter(move =>
+                move.r >= 0 && move.r < BOARD_SIZE &&
+                move.c >= 0 && move.c < BOARD_SIZE &&
+                (!boardState[move.r][move.c] || boardState[move.r][move.c].player !== player)
+            );
+        }
+
+        // --- Piece Move Calculations ---
+        function getKingMoves(r, c) {
+            const moves = [];
+            for (let dr = -1; dr <= 1; dr++) {
+                for (let dc = -1; dc <= 1; dc++) {
+                    if (dr === 0 && dc === 0) continue;
+                    moves.push({ r: r + dr, c: c + dc });
+                }
+            }
+            return moves;
+        }
+
+        function getPawnMoves(r, c, player) {
+            const moves = [];
+            const direction = player === PLAYER.ONE ? -1 : 1;
+            
+            const fR = r + direction;
+            if (fR >= 0 && fR < BOARD_SIZE && !boardState[fR][c]) {
+                moves.push({ r: fR, c: c });
+            }
+            
+            [-1, 1].forEach(dC => {
+                const nR = r + direction;
+                const nC = c + dC;
+                if (nR >= 0 && nR < BOARD_SIZE && nC >= 0 && nC < BOARD_SIZE) {
+                    const target = boardState[nR][nC];
+                    if (target && target.player !== player) {
+                        moves.push({ r: nR, c: nC });
+                    }
+                }
+            });
+            return moves;
+        }
+
+        function getKnightMoves(r, c) {
+            const moves = [];
+            const deltas = [
+                [-2, -1], [-2, 1], [-1, -2], [-1, 2],
+                [1, -2], [1, 2], [2, -1], [2, 1]
+            ];
+            deltas.forEach(d => {
+                moves.push({ r: r + d[0], c: c + d[1] });
+            });
+            return moves;
+        }
+
+        // --- Utility Functions ---
+        function clearHighlights() {
+            document.querySelectorAll('.selected, .valid-move').forEach(el => {
+                el.classList.remove('selected', 'valid-move');
+            });
+        }
+        
+        function findPiece(type, player) {
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    const piece = boardState[r][c];
+                    if (piece && piece.type === type && piece.player === player) {
+                        return { r, c };
+                    }
+                }
+            }
+            return null;
+        }
+        
+        function slideArray(arr, delta) {
+            const newArr = [...arr];
+            if (delta === 1) { // slide right/down
+                newArr.unshift(newArr.pop());
+            } else { // slide left/up
+                newArr.push(newArr.shift());
+            }
+            return newArr;
+        }
+        
+        function checkForWin(r, c) {
+            const piece = boardState[r][c];
+            if (!piece || piece.type !== PIECES.KING) return false;
+            
+            if (piece.player === PLAYER.ONE && r === 0) return true;
+            if (piece.player === PLAYER.TWO && r === BOARD_SIZE - 1) return true;
+            
+            return false;
+        }
+
+        function showWinModal() {
+            const winner = currentPlayer;
+            const playerName = winner === PLAYER.ONE ? '1 (白)' : '2 (黒)';
+            winMessage.textContent = `プレイヤー${playerName}の勝利です！`;
+            winModal.style.display = 'flex';
+            updateMessage();
+        }
+
+        // --- Event Listeners ---
+        resetButton.addEventListener('click', initGame);
+        modalResetButton.addEventListener('click', initGame);
+        helpButton.addEventListener('click', () => {
+            helpModal.style.display = 'flex';
+        });
+        modalCloseButton.addEventListener('click', () => {
+            helpModal.style.display = 'none';
+        });
+        winModal.addEventListener('click', (e) => {
+            if (e.target === winModal) {
+                initGame();
+            }
+        });
+        helpModal.addEventListener('click', (e) => {
+            if (e.target === helpModal) {
+                helpModal.style.display = 'none';
+            }
+        });
+
+        // --- Start Game ---
+        initGame();
+    });
+    </script>
+</body>
+</html>
+
